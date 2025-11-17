@@ -72,19 +72,22 @@ class Notebook:
         self.add_cell(cell)
         return cell
     
-    def create_prompt_cell(self, content: str, model: str = "gpt-4", 
-                         temperature: float = 0.7) -> PromptCell:
+    def create_prompt_cell(self, content: str, model: str = "gpt-4",
+                         temperature: float = 0.7,
+                         response_var: Optional[str] = None) -> PromptCell:
         """Create and add a prompt cell.
-        
+
         Args:
             content: The prompt template
             model: The LLM model to use
             temperature: The sampling temperature
-            
+            response_var: Optional custom name for the response variable
+
         Returns:
             The created cell
         """
-        cell = PromptCell(content, model=model, temperature=temperature)
+        cell = PromptCell(content, model=model, temperature=temperature,
+                         response_var=response_var)
         self.add_cell(cell)
         return cell
     
@@ -103,25 +106,29 @@ class Notebook:
     
     def execute_cell(self, cell_index: int) -> List[Dict[str, Any]]:
         """Execute a cell and update the notebook state.
-        
+
         Args:
             cell_index: The index of the cell to execute
-            
+
         Returns:
             The outputs of the cell
         """
         if cell_index < 0 or cell_index >= len(self.cells):
             raise IndexError(f"Cell index {cell_index} out of range")
-        
+
         cell = self.cells[cell_index]
-        
+
+        # Set cell index for PromptCell response naming
+        if isinstance(cell, PromptCell):
+            cell._cell_index = cell_index
+
         # Execute the cell with the current state
         updated_state = cell.execute(self.state)
-        
+
         # Update the notebook state
         self.state = updated_state
         self.updated_at = datetime.now().isoformat()
-        
+
         return cell.outputs
     
     def execute_all_cells(self) -> None:
@@ -207,7 +214,8 @@ class Notebook:
                     "content": cell.content,
                     "outputs": cell.outputs,
                     # Include any cell-specific attributes
-                    **({"model": cell.model, "temperature": cell.temperature} 
+                    **({"model": cell.model, "temperature": cell.temperature,
+                        "response_var": cell.response_var}
                        if isinstance(cell, PromptCell) else {})
                 }
                 for cell in self.cells
@@ -218,65 +226,89 @@ class Notebook:
     
     def save(self, filepath: str) -> None:
         """Save the notebook to a file.
-        
+
         Args:
             filepath: The path to save the notebook to
+
+        Raises:
+            IOError: If the file cannot be saved
         """
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.dirname(os.path.abspath(filepath)), exist_ok=True)
-        
-        # Update the timestamp
-        self.updated_at = datetime.now().isoformat()
-        
-        # Save as JSON
-        with open(filepath, 'w') as f:
-            json.dump(self.to_dict(), f, indent=2)
+        try:
+            # Create directory if it doesn't exist
+            dir_path = os.path.dirname(os.path.abspath(filepath))
+            if dir_path:  # Only create if there's a directory path
+                os.makedirs(dir_path, exist_ok=True)
+
+            # Update the timestamp
+            self.updated_at = datetime.now().isoformat()
+
+            # Save as JSON
+            with open(filepath, 'w') as f:
+                json.dump(self.to_dict(), f, indent=2)
+
+        except (IOError, OSError, PermissionError) as e:
+            raise IOError(f"Failed to save notebook to {filepath}: {e}") from e
     
     @classmethod
     def load(cls, filepath: str) -> 'Notebook':
         """Load a notebook from a file.
-        
+
         Args:
             filepath: The path to load the notebook from
-            
+
         Returns:
             The loaded notebook
+
+        Raises:
+            IOError: If the file cannot be read
+            ValueError: If the notebook format is invalid
         """
-        with open(filepath, 'r') as f:
-            data = json.load(f)
-        
-        notebook = cls(name=data.get('name', 'Untitled Notebook'))
-        notebook.notebook_id = data.get('notebook_id', str(uuid.uuid4()))
-        notebook.created_at = data.get('created_at', datetime.now().isoformat())
-        notebook.updated_at = data.get('updated_at', notebook.created_at)
-        notebook.metadata = data.get('metadata', {})
-        
-        # Recreate cells
-        for cell_data in data.get('cells', []):
-            cell_type = cell_data.get('type')
-            content = cell_data.get('content', '')
-            cell_id = cell_data.get('cell_id')
-            
-            if cell_type == 'MarkdownCell':
-                cell = MarkdownCell(content, cell_id=cell_id)
-            elif cell_type == 'ComputationCell':
-                cell = ComputationCell(content, cell_id=cell_id)
-            elif cell_type == 'PromptCell':
-                model = cell_data.get('model', 'gpt-4')
-                temperature = cell_data.get('temperature', 0.7)
-                cell = PromptCell(content, cell_id=cell_id, 
-                                model=model, temperature=temperature)
-            elif cell_type == 'MemoryCell':
-                cell = MemoryCell(content, cell_id=cell_id)
-            else:
-                raise ValueError(f"Unknown cell type: {cell_type}")
-            
-            # Restore outputs
-            cell.outputs = cell_data.get('outputs', [])
-            
-            notebook.add_cell(cell)
-        
-        return notebook
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+        except (IOError, OSError, PermissionError) as e:
+            raise IOError(f"Failed to load notebook from {filepath}: {e}") from e
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid notebook format in {filepath}: {e}") from e
+
+        try:
+            notebook = cls(name=data.get('name', 'Untitled Notebook'))
+            notebook.notebook_id = data.get('notebook_id', str(uuid.uuid4()))
+            notebook.created_at = data.get('created_at', datetime.now().isoformat())
+            notebook.updated_at = data.get('updated_at', notebook.created_at)
+            notebook.metadata = data.get('metadata', {})
+
+            # Recreate cells
+            for cell_data in data.get('cells', []):
+                cell_type = cell_data.get('type')
+                content = cell_data.get('content', '')
+                cell_id = cell_data.get('cell_id')
+
+                if cell_type == 'MarkdownCell':
+                    cell = MarkdownCell(content, cell_id=cell_id)
+                elif cell_type == 'ComputationCell':
+                    cell = ComputationCell(content, cell_id=cell_id)
+                elif cell_type == 'PromptCell':
+                    model = cell_data.get('model', 'gpt-4')
+                    temperature = cell_data.get('temperature', 0.7)
+                    response_var = cell_data.get('response_var')
+                    cell = PromptCell(content, cell_id=cell_id,
+                                    model=model, temperature=temperature,
+                                    response_var=response_var)
+                elif cell_type == 'MemoryCell':
+                    cell = MemoryCell(content, cell_id=cell_id)
+                else:
+                    raise ValueError(f"Unknown cell type: {cell_type}")
+
+                # Restore outputs
+                cell.outputs = cell_data.get('outputs', [])
+
+                notebook.add_cell(cell)
+
+            return notebook
+
+        except Exception as e:
+            raise ValueError(f"Failed to parse notebook structure: {e}") from e
     
     def clear_outputs(self) -> None:
         """Clear all cell outputs in the notebook."""

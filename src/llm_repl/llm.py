@@ -9,8 +9,12 @@ configuration.
 import os
 from abc import ABC, abstractmethod
 import json
+import logging
 from typing import Any, Dict, List, Optional, Union
 import yaml
+
+# Set up logging
+logger = logging.getLogger(__name__)
 
 # Default configuration path
 CONFIG_PATH = os.path.expanduser("~/.llm-repl/config.yaml")
@@ -99,7 +103,7 @@ class OpenAIProvider(LLMProvider):
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"Error generating response from OpenAI: {e}")
+            logger.error(f"Error generating response from OpenAI: {e}", exc_info=True)
             return f"Error: {str(e)}"
     
     def get_available_models(self) -> List[str]:
@@ -112,7 +116,7 @@ class OpenAIProvider(LLMProvider):
             models = self.client.models.list()
             return [model.id for model in models.data]
         except Exception as e:
-            print(f"Error fetching OpenAI models: {e}")
+            logger.warning(f"Error fetching OpenAI models: {e}", exc_info=True)
             return ["gpt-4", "gpt-3.5-turbo"]  # Fallback to common models
 
 
@@ -172,8 +176,8 @@ def get_llm_provider() -> LLMProvider:
                 _provider = MockProvider()
                 
         except Exception as e:
-            print(f"Error initializing LLM provider: {e}")
-            print("Falling back to mock provider")
+            logger.error(f"Error initializing LLM provider: {e}", exc_info=True)
+            logger.info("Falling back to mock provider")
             _provider = MockProvider()
     
     return _provider
