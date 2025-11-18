@@ -445,4 +445,4 @@ if __name__ == '__main__':
                         help='Run in debug mode')
     args = parser.parse_args()
     
-    socketio.run(app, debug=args.debug, host=args.host, port=args.port)
+    socketio.run(app, debug=args.debug, host=args.host, port=args.port, allow_unsafe_werkzeug=True)
