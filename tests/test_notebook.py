@@ -127,9 +127,14 @@ class TestNotebook(unittest.TestCase):
         self.assertEqual(len(outputs), 1)
         self.assertEqual(outputs[0]["type"], "llm_response")
         self.assertEqual(outputs[0]["content"], "This is a mock response.")
-        
+
         # Check that the response was added to the state
-        self.assertIn(f"response_{cell.cell_id.split('-')[0]}", self.notebook.state)
+        # Response should be named response_0 since it's the first (index 0) cell
+        self.assertIn("response_0", self.notebook.state)
+        self.assertEqual(self.notebook.state["response_0"], "This is a mock response.")
+        # Also check for IPython-style last response
+        self.assertIn("_", self.notebook.state)
+        self.assertEqual(self.notebook.state["_"], "This is a mock response.")
     
     def test_execute_memory_cell(self):
         """Test executing a memory cell."""
